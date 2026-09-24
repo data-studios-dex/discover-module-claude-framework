@@ -1,0 +1,8 @@
+# The framework core is STDLIB-ONLY: the offline demo needs nothing below.
+# Optional extras:
+anthropic>=0.40          # enables LLM mode when ANTHROPIC_API_KEY is set
+sqlalchemy>=2.0          # required only for non-sqlite DB_URL
+# plus the engine driver you use, e.g.:
+#   psycopg2-binary      # PostgreSQL
+#   oracledb             # Oracle
+#   pymysql              # MySQL
