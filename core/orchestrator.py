@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 from .schemas import (SchemaManifest, SQLBatch, TableMeta, Stage,
                       validate_payload, to_dict, TableReview)
@@ -37,6 +38,7 @@ from agents.reporter import ReportAgent
 
 class MasterOrchestrator:
     name = "MasterOrchestrator"
+    skill_name = "master_orchestrator"
 
     def __init__(self, state: RunState):
         self.state = state
@@ -44,6 +46,7 @@ class MasterOrchestrator:
         self.audit = Audit(state.run_dir)
         self.db = DB(cfg["db_url"])
         self.llm = LLM()
+        self.skill = self.llm.skill("master_orchestrator")
         a = (self.db, self.llm, self.audit)
         self.discovery = DiscoveryAgent(*a)
         self.sqlgen = ProfileSQLGenAgent(*a)
@@ -58,8 +61,10 @@ class MasterOrchestrator:
     # ================================================================ run =
     async def run(self) -> Path:
         cfg = self.state.config
-        self.audit.note(f"run start (llm mode = {self.llm.mode})",
-                        run=self.state.run_id)
+        skill_names = [s["name"] for s in self.llm.skills.catalog()]
+        self.audit.note(
+            f"run start (llm mode = {self.llm.mode}, orchestrator skill = {self.skill.name if self.skill else 'master_orchestrator'}, skills loaded = {skill_names})",
+            run=self.state.run_id)
 
         # ---- G1: connection / discovery --------------------------------
         manifest = self.discovery.discover(cfg.get("schema", ""))
@@ -93,6 +98,13 @@ class MasterOrchestrator:
         self.state.save()
         state_dict = json.loads(
             (self.state.run_dir / "state.json").read_text(encoding="utf-8"))
+
+        # Master Orchestrator Executive Governance Synthesis (guided by master_orchestrator skill)
+        exec_summary = self._synthesize_governance_summary(manifest, state_dict)
+        state_dict["executive_summary"] = exec_summary
+        (self.state.run_dir / "executive_summary.md").write_text(exec_summary, encoding="utf-8")
+        self.audit.note("Executive governance synthesis generated via master_orchestrator skill.")
+
         report_html = self.reporter.render(
             self.state.run_dir, state_dict, self.audit.read_all(),
             g6_reason=decision.reason,
@@ -112,7 +124,7 @@ class MasterOrchestrator:
         try:
             # -- PROFILING SQUAD --------------------------------------- --
             self.state.set_stage(name, Stage.PROFILE_GEN)
-            self.audit.note(f"[{name}] [1/7: PROFILE_GEN] Calling ProfileSQLGenAgent (LLM) to generate profiling queries for {len(meta.columns)} columns...")
+            self.audit.note(f"[{name}] [1/7: PROFILE_GEN] Calling ProfileSQLGenAgent (skill: profile_sqlgen) to generate profiling queries for {len(meta.columns)} columns...")
             inject = (cfg.get("demo_inject_failure") and
                       name == cfg.get("demo_failure_table"))
             batch = self.sqlgen.generate(meta, inject_failure=bool(inject))
@@ -121,7 +133,7 @@ class MasterOrchestrator:
             self.audit.note(f"[{name}] [1/7: PROFILE_GEN] Generated {len(batch.items)} profiling queries.")
 
             self.state.set_stage(name, Stage.PROFILE_VALIDATE)
-            self.audit.note(f"[{name}] [2/7: PROFILE_VALIDATE] Validating {len(batch.items)} profiling queries with SQLValidatorAgent...")
+            self.audit.note(f"[{name}] [2/7: PROFILE_VALIDATE] Validating {len(batch.items)} profiling queries with SQLValidatorAgent (skill: sql_validator)...")
             ensure_validated(batch.items, self.validator, self.fixer,
                              self.audit, name, self.max_attempts)
 
@@ -136,7 +148,7 @@ class MasterOrchestrator:
                 raise GateClosed(decision)
 
             self.state.set_stage(name, Stage.PROFILE_EXECUTE)
-            self.audit.note(f"[{name}] [3/7: PROFILE_EXECUTE] Executing {len(batch.items)} profiling queries with SQLExecutorAgent...")
+            self.audit.note(f"[{name}] [3/7: PROFILE_EXECUTE] Executing {len(batch.items)} profiling queries with SQLExecutorAgent (skill: sql_executor)...")
             execute_items(batch.items, bound, self.validator, self.fixer,
                           self.audit, name, self.max_attempts)
             t["profile_summary"] = self._profile_summary(meta, batch)
@@ -154,14 +166,14 @@ class MasterOrchestrator:
 
             # -- DQ SQUAD ------------------------------------------------
             self.state.set_stage(name, Stage.DQ_GEN)
-            self.audit.note(f"[{name}] [4/7: DQ_GEN] Calling DQRuleGenAgent (LLM) to design DQ rules based on profile...")
+            self.audit.note(f"[{name}] [4/7: DQ_GEN] Calling DQRuleGenAgent (skill: dq_rulegen) to design DQ rules based on profile...")
             rules = self.rulegen.generate(meta, t["profile_summary"])
             t["dq_rules"] = rules
             checks = [r.check_sql for r in rules]
             self.audit.note(f"[{name}] [4/7: DQ_GEN] Generated {len(rules)} DQ rules across 6 dimensions.")
 
             self.state.set_stage(name, Stage.DQ_VALIDATE)
-            self.audit.note(f"[{name}] [5/7: DQ_VALIDATE] Validating {len(checks)} DQ check queries...")
+            self.audit.note(f"[{name}] [5/7: DQ_VALIDATE] Validating {len(checks)} DQ check queries with SQLValidatorAgent (skill: sql_validator)...")
             ensure_validated(checks, self.validator, self.fixer,
                              self.audit, name, self.max_attempts)
 
@@ -176,7 +188,7 @@ class MasterOrchestrator:
                 raise GateClosed(decision)
 
             self.state.set_stage(name, Stage.DQ_EXECUTE)
-            self.audit.note(f"[{name}] [6/7: DQ_EXECUTE] Executing {len(checks)} DQ checks on database...")
+            self.audit.note(f"[{name}] [6/7: DQ_EXECUTE] Executing {len(checks)} DQ checks with SQLExecutorAgent (skill: sql_executor)...")
             execute_items(checks, bound4, self.validator, self.fixer,
                           self.audit, name, self.max_attempts)
             for r in rules:
@@ -193,7 +205,7 @@ class MasterOrchestrator:
                 raise GateClosed(decision)
 
             self.state.set_stage(name, Stage.REVIEW)
-            self.audit.note(f"[{name}] [7/7: REVIEW] Calling ReviewerAgent (LLM) for health triage & recommendations...")
+            self.audit.note(f"[{name}] [7/7: REVIEW] Calling ReviewerAgent (skill: reviewer) for health triage & recommendations...")
             review = self.reviewer.review(meta, t["profile_summary"],
                                           rules, t["waived"])
             validate_payload(review, TableReview, self.reviewer.name)
@@ -215,6 +227,78 @@ class MasterOrchestrator:
             self.state.set_stage(name, Stage.BLOCKED)
             self.audit.note(f"[{name}] [BLOCKED] Tool error [{e.error_class}]: {e}")
             self.state.save()
+
+    # ------------------------------------------------------------------ #
+    def _synthesize_governance_summary(self, manifest: SchemaManifest, state_dict: dict) -> str:
+        """
+        Synthesize cross-table data governance narrative guided by the Master Orchestrator skill.
+        In API mode: calls Claude with master_orchestrator skill.
+        In offline mode: generates a structured executive synthesis based on table reviews and quality scores.
+        """
+        tables = state_dict.get("tables", {})
+        total_tables = len(tables)
+        reviewed_tables = sum(1 for t in tables.values() if t.get("stage") == "reviewed")
+        blocked_tables = sum(1 for t in tables.values() if t.get("stage") == "blocked")
+
+        total_pass = sum((t.get("review") or {}).get("dq_pass", 0) for t in tables.values())
+        total_fail = sum((t.get("review") or {}).get("dq_fail", 0) for t in tables.values())
+        total_rules = total_pass + total_fail
+        overall_score = round(total_pass / total_rules * 100, 1) if total_rules else 100.0
+
+        if self.llm.mode == "api" and self.skill:
+            try:
+                system = self.skill.to_system_prompt()
+                user_payload = {
+                    "schema": manifest.schema_name,
+                    "tables_total": total_tables,
+                    "tables_reviewed": reviewed_tables,
+                    "tables_blocked": blocked_tables,
+                    "overall_dq_score": f"{overall_score}%",
+                    "table_summaries": [
+                        {
+                            "table": name,
+                            "stage": t.get("stage"),
+                            "row_count": (t.get("profile_summary") or {}).get("row_count"),
+                            "dq_pass": (t.get("review") or {}).get("dq_pass", 0),
+                            "dq_fail": (t.get("review") or {}).get("dq_fail", 0),
+                            "category_scores": (t.get("review") or {}).get("category_scores", {}),
+                            "suggestions": (t.get("review") or {}).get("suggestions", []),
+                        }
+                        for name, t in tables.items()
+                    ]
+                }
+                return self.llm.complete(system, json.dumps(user_payload, default=str), max_tokens=2048)
+            except Exception as e:
+                self.audit.note(f"Executive synthesis via LLM failed, using fallback: {e}")
+
+        # Deterministic / offline synthesis following Master Orchestrator skill protocol
+        lines = [
+            f"# Executive Data Governance Synthesis (Master Orchestrator Skill)",
+            f"",
+            f"**Schema**: `{manifest.schema_name or 'default'}` | **Overall DQ Score**: **{overall_score}%** ({total_pass}/{total_rules} checks passed)",
+            f"- **Execution Health**: {reviewed_tables}/{total_tables} tables completed successfully ({blocked_tables} blocked).",
+            f"",
+            f"### Cross-Table Health & Systemic Risk Triage",
+        ]
+
+        if total_fail == 0:
+            lines.append("- **Zero Critical Defects**: All evaluated tables passed data quality thresholds across all 6 dimensions.")
+        else:
+            lines.append(f"- **Identified Defect Volume**: {total_fail} check failure(s) detected across tables requiring engineering remediation.")
+
+        recurrent_suggestions = []
+        for name, t in tables.items():
+            rv = t.get("review") or {}
+            for s in rv.get("suggestions", []):
+                recurrent_suggestions.append((name, s))
+
+        if recurrent_suggestions:
+            lines.append("\n### High-Priority Engineering Remediation Actions")
+            for tbl, sugg in recurrent_suggestions[:8]:
+                lines.append(f"- **`{tbl}`**: {sugg}")
+
+        return "\n".join(lines)
+
 
     # ------------------------------------------------------------------ #
     @staticmethod

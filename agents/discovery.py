@@ -8,6 +8,7 @@ from .base import Agent
 
 class DiscoveryAgent(Agent):
     name = "DiscoveryAgent"
+    skill_name = "discovery"
 
     def discover(self, schema: str) -> SchemaManifest:
         fn = with_hooks(self.audit, self.name, "db.discover")(

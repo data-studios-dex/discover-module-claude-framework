@@ -12,6 +12,7 @@ from .base import Agent
 
 class SQLExecutorAgent(Agent):
     name = "SQLExecutorAgent"
+    skill_name = "sql_executor"
 
     def bind_gate(self, gate: Gate, gate_ctx: dict, table: str):
         """Return an executor view whose every call re-checks the gate."""

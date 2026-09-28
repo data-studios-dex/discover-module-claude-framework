@@ -13,6 +13,9 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Optional
+
+from .skills import SkillRegistry, Skill
 
 PROMPT_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -23,6 +26,7 @@ class LLM:
         key = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
         self.mode = "offline"
         self._client = None
+        self.skills = SkillRegistry()
         if key and not key.startswith("sk-your"):
             try:
                 import anthropic
@@ -31,7 +35,18 @@ class LLM:
             except ImportError:
                 pass  # stay offline; requirements.txt explains
 
+    def skill(self, name: str) -> Optional[Skill]:
+        """Load and return the parsed Skill object."""
+        return self.skills.get(name)
+
     def prompt(self, name: str) -> str:
+        """
+        Retrieve instructions/system prompt from the skills registry.
+        Falls back to legacy prompts/ directory if not found in skills/.
+        """
+        sys_prompt = self.skills.get_system_prompt(name)
+        if sys_prompt:
+            return sys_prompt
         p = PROMPT_DIR / f"{name}.txt"
         return p.read_text(encoding="utf-8") if p.exists() else ""
 

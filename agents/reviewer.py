@@ -30,6 +30,7 @@ def _extract_int(val: Any, default: int = 0) -> int:
 
 class ReviewerAgent(Agent):
     name = "ReviewerAgent"
+    skill_name = "reviewer"
 
     def review(self, meta: TableMeta, profile: dict,
                rules: list[DQRule], waived: list[str]) -> TableReview:

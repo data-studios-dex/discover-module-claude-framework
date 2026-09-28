@@ -8,6 +8,7 @@ from .base import Agent
 
 class SQLValidatorAgent(Agent):
     name = "SQLValidatorAgent"
+    skill_name = "sql_validator"
 
     def validate(self, item: SQLItem) -> None:
         fn = with_hooks(self.audit, self.name, "db.explain")(self._explain)

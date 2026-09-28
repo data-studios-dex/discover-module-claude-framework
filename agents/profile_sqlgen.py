@@ -18,6 +18,7 @@ NUMERIC_HINTS = ("int", "num", "real", "dec", "float", "double", "money")
 
 class ProfileSQLGenAgent(Agent):
     name = "ProfileSQLGenAgent"
+    skill_name = "profile_sqlgen"
 
     def generate(self, meta: TableMeta, inject_failure: bool = False) -> SQLBatch:
         fn = with_hooks(self.audit, self.name, "llm.generate",
@@ -61,6 +62,7 @@ class ProfileSQLGenAgent(Agent):
         raw = self.llm.strip_fences(self.llm.complete(system, user, 8192))
         spec = json.loads(raw)
         items = [SQLItem(sql_id=s["sql_id"], purpose=s["purpose"],
-                         column=s.get("column"), sql_text=s["sql"])
+                         column=s.get("column"),
+                         sql_text=s.get("sql_text") or s.get("sql", ""))
                  for s in spec]
         return SQLBatch(table=meta, stage=Stage.PROFILE_GEN, items=items)

@@ -23,6 +23,7 @@ def q(ident: str) -> str:
 
 class DQRuleGenAgent(Agent):
     name = "DQRuleGenAgent"
+    skill_name = "dq_rulegen"
 
     def generate(self, meta: TableMeta, profile: dict) -> list[DQRule]:
         fn = with_hooks(self.audit, self.name, "llm.generate",
@@ -114,13 +115,22 @@ class DQRuleGenAgent(Agent):
         user = json.dumps({"table": meta.fqn, "profile": profile}, default=str)
         raw = self.llm.strip_fences(self.llm.complete(system, user, 8192))
         spec = json.loads(raw)
-        return [DQRule(rule_id=r["rule_id"], category=r["category"],
-                       column=r.get("column"),
-                       description=r["description"],
-                       threshold_pct=float(r.get("threshold_pct", 100)),
-                       check_sql=SQLItem(sql_id=f"dq.{r['rule_id']}",
-                                         purpose="dq_check",
-                                         column=r.get("column"),
-                                         sql_text=r["check_sql"]))
-                for r in spec]
+        rules = []
+        for r in spec:
+            chk = r.get("check_sql", "")
+            if isinstance(chk, dict):
+                chk_sql = chk.get("sql_text") or chk.get("sql", "")
+            else:
+                chk_sql = str(chk)
+            rules.append(DQRule(
+                rule_id=r["rule_id"],
+                category=r["category"],
+                column=r.get("column"),
+                description=r.get("description", ""),
+                threshold_pct=float(r.get("threshold_pct", 100)),
+                check_sql=SQLItem(sql_id=f"dq.{r['rule_id']}",
+                                  purpose="dq_check",
+                                  column=r.get("column"),
+                                  sql_text=chk_sql)))
+        return rules
 

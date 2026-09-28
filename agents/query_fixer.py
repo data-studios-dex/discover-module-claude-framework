@@ -23,6 +23,7 @@ RESERVED = {
 
 class QueryFixerAgent(Agent):
     name = "QueryFixerAgent"
+    skill_name = "query_fixer"
 
     def fix(self, failure: QueryFailure) -> str | None:
         fn = with_hooks(self.audit, self.name, "llm.fix",

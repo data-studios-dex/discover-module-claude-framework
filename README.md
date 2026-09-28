@@ -25,7 +25,7 @@ Every step is **gate-enforced**, every tool invocation is **hooked and audited**
   - [8.1 Root Level Files](#81-root-level-files)
   - [8.2 Core Engine (`core/`)](#82-core-engine-core)
   - [8.3 Specialized Agents (`agents/`)](#83-specialized-agents-agents)
-  - [8.4 Agent Prompts (`prompts/`)](#84-agent-prompts-prompts)
+  - [8.4 Anthropic Agent Skills (`.claude/skills/`)](#84-anthropic-agent-skills-claudeskills)
   - [8.5 Sample Data & Seeders (`sample/` & `seed_data.py`)](#85-sample-data--seeders-sample--seed_datapy)
   - [8.6 Verification & Testing (`tests/`)](#86-verification--testing-tests)
   - [8.7 Artifacts & Observability (`runs/`)](#87-artifacts--observability-runs)
@@ -339,7 +339,7 @@ Database abstraction layer.
 #### [`core/llm.py`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/core/llm.py)
 Multi-mode LLM client.
 - Automatically selects operational mode:
-  - **`api` mode**: Activated when `ANTHROPIC_API_KEY` is present and `anthropic` is installed. Calls Claude using system prompts loaded from `prompts/`.
+  - **`api` mode**: Activated when `ANTHROPIC_API_KEY` is present and `anthropic` is installed. Calls Claude using system prompts loaded from `.claude/skills/`.
   - **`offline` mode**: Default fallback when no API key is provided. Agents use deterministic heuristics, enabling the full framework to run offline.
 - `strip_fences()`: Robust JSON parser that strips markdown code blocks and extracts balanced JSON arrays or objects from LLM text responses.
 
@@ -355,7 +355,7 @@ Abstract base class providing every sub-agent with shared references to the data
 
 #### [`agents/profile_sqlgen.py`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/agents/profile_sqlgen.py)
 `ProfileSQLGenAgent`: Generates profiling queries (table row counts, per-column null counts, distinct counts, min/max ranges, top frequent values).
-- In API mode: Prompts Claude using [`prompts/profile_sqlgen.txt`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/prompts/profile_sqlgen.txt).
+- In API mode: Prompts Claude using [`.claude/skills/profile_sqlgen/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/profile_sqlgen/SKILL.md).
 - In Offline mode: Generates templates. Intentionally leaves identifiers unquoted on the first attempt so reserved-word columns (e.g. `group`) fail validation and exercise the `QueryFixerAgent` loop.
 
 #### [`agents/sql_validator.py`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/agents/sql_validator.py)
@@ -370,7 +370,7 @@ Abstract base class providing every sub-agent with shared references to the data
 #### [`agents/query_fixer.py`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/agents/query_fixer.py)
 `QueryFixerAgent`: Specialized SQL repair agent.
 - Receives a [`QueryFailure`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/core/schemas.py#L101) containing the query text, error message, and error class.
-- Identifies reserved keywords, quotes offending identifiers, appends missing limits on timeouts, or delegates repair to Claude using [`prompts/query_fixer.txt`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/prompts/query_fixer.txt).
+- Identifies reserved keywords, quotes offending identifiers, appends missing limits on timeouts, or delegates repair to Claude using [`.claude/skills/query_fixer/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/query_fixer/SKILL.md).
 - Returns `None` for unfixable errors (e.g. missing tables), causing the loop to terminate cleanly.
 
 #### [`agents/dq_rulegen.py`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/agents/dq_rulegen.py)
@@ -391,13 +391,22 @@ Abstract base class providing every sub-agent with shared references to the data
 
 ---
 
-### 8.4 Agent Prompts (`prompts/`)
+### 8.4 Anthropic Agent Skills Architecture (`.claude/skills/`)
 
-- [`prompts/master_orchestrator.txt`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/prompts/master_orchestrator.txt): Governs the master orchestrator's triage logic, cross-table risk correlation, and executive summary generation.
-- [`prompts/profile_sqlgen.txt`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/prompts/profile_sqlgen.txt): Guides LLM profiling query generation, metric categories, identifier quoting rules, and output JSON array schemas.
-- [`prompts/dq_rulegen.txt`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/prompts/dq_rulegen.txt): Directs rule generation across the 6 data quality dimensions, defining violation count patterns and threshold expectations.
-- [`prompts/query_fixer.txt`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/prompts/query_fixer.txt): Instruction set for diagnosing database error messages, fixing syntax errors, quoting reserved words, and identifying unfixable queries.
-- [`prompts/reviewer.txt`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/prompts/reviewer.txt): Guides synthesis of prioritized, actionable remediation recommendations for data engineering teams.
+The framework implements the **Anthropic Agent Skills open standard**, organizing domain expertise, procedures, and constraints into modular, portable `SKILL.md` packages with YAML frontmatter inside the standard `.claude/skills/` project directory. The central `SkillRegistry` ([`core/skills.py`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/core/skills.py)) enforces **progressive disclosure**, reading skill metadata during startup and dynamically resolving system prompts and guidelines on demand.
+
+- [`.claude/skills/master_orchestrator/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/master_orchestrator/SKILL.md): Governs the master orchestrator's S1–S7 execution, G1–G6 gate policies, dynamic fan-out, failure isolation, and executive cross-table synthesis.
+- [`.claude/skills/profile_sqlgen/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/profile_sqlgen/SKILL.md): Guides profiling query formulation, metric dimensions (volume, missingness, cardinality, boundary ranges, frequency, whitespace), identifier quoting, and strict JSON output schemas.
+- [`.claude/skills/dq_rulegen/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/dq_rulegen/SKILL.md): Directs rule generation across the 6 core data quality dimensions, enforcing the golden rule that every check query returns a single scalar violation count.
+- [`.claude/skills/query_fixer/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/query_fixer/SKILL.md): Playbook for diagnosing compiler diagnostics, quoting reserved keywords, casting mismatched data types, and signaling `UNFIXABLE`.
+- [`.claude/skills/reviewer/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/reviewer/SKILL.md): Guides health triage, root-cause defect analysis, and prioritized engineering-grade remediation recommendations.
+- [`.claude/skills/discovery/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/discovery/SKILL.md): Schema introspection and metadata reflection specification.
+- [`.claude/skills/sql_validator/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/sql_validator/SKILL.md): Safety linting (DDL/DML denial) and AST / `EXPLAIN` dry-run verification.
+- [`.claude/skills/sql_executor/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/sql_executor/SKILL.md): Bound-gate execution under pre-tool gate enforcement and latency/row auditing.
+- [`.claude/skills/reporter/SKILL.md`](file:///c:/Users/saikiran.chandana/Desktop/Claude/Discover-Frame-work/agentic_dq/.claude/skills/reporter/SKILL.md): Multi-format observability dashboard generation (`report.html`, `report.md`, and `executive_summary.md`).
+
+> **Skill Discovery**: The registry standardizes on `.claude/skills/` as the single source of truth for all agent prompts, behavioral playbooks, and procedural guidelines.
+
 
 ---
 
